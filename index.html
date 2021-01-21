@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>Add a 3D model</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <script src="https://api.mapbox.com/mapbox-gl-js/v2.0.0/mapbox-gl.js"></script>
+    <link href="https://api.mapbox.com/mapbox-gl-js/v2.0.0/mapbox-gl.css" rel="stylesheet" />
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+        }
+
+        #map {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <script src="https://unpkg.com/three@0.107/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.107/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://unpkg.com/three@0.107/examples/js/loaders/MTLLoader.js"></script>
+    <script src="https://unpkg.com/three@0.107/examples/js/loaders/GLTFLoader.js"></script>
+    <div id="map"></div>
+    <script>
+        // TO MAKE THE MAP APPEAR YOU MUST
+        // ADD YOUR ACCESS TOKEN FROM
+        // https://account.mapbox.com
+        mapboxgl.accessToken = 'pk.eyJ1IjoicmFqYW4wMjciLCJhIjoiY2s2b25oYTg1MDJtazNsbXZ4OTFqcnN2cSJ9.MGaLTVPvgOjQazj7ZTX1nQ';
+        var map = (window.map = new mapboxgl.Map({
+            container: 'map',
+            style: 'mapbox://styles/mapbox/satellite-streets-v11',
+            zoom: 16,
+            // center: [78.6418820000024, 28.818347999999972],
+            center: [77.99886150378745,30.34022061276241],
+            pitch: 60,
+            antialias: true // create the gl context with MSAA antialiasing, so custom layers are antialiased
+        }));
+
+//         map.on('load', ()=>{
+//             map.addSource('mapbox-dem', {
+// 'type': 'raster-dem',
+// 'url': 'mapbox://mapbox.mapbox-terrain-dem-v1',
+// 'tileSize': 512,
+// 'maxzoom': 14
+// });
+// // add the DEM source as a terrain layer with exaggerated height
+// map.setTerrain({ 'source': 'mapbox-dem', 'exaggeration': 1.5 });
+//         })
+
+        // parameters to ensure the model is georeferenced correctly on the map
+        // var modelOrigin = [78.6418820000024, 28.818347999999972];
+        var modelOrigin = [77.99886150378745, 30.34022061276241]
+        var modelAltitude = 0;
+        var modelRotate = [0, 0, 0];
+
+        var modelAsMercatorCoordinate = mapboxgl.MercatorCoordinate.fromLngLat(
+            modelOrigin,
+            modelAltitude
+        );
+
+        // transformation parameters to position, rotate and scale the 3D model onto the map
+        var modelTransform = {
+            translateX: modelAsMercatorCoordinate.x,
+            translateY: modelAsMercatorCoordinate.y,
+            translateZ: modelAsMercatorCoordinate.z,
+            rotateX: modelRotate[0],
+            rotateY: modelRotate[1],
+            rotateZ: modelRotate[2],
+            /* Since our 3D model is in real world meters, a scale transform needs to be
+             * applied since the CustomLayerInterface expects units in MercatorCoordinates.
+             */
+            scale: modelAsMercatorCoordinate.meterInMercatorCoordinateUnits()
+        };
+
+        var THREE = window.THREE;
+
+        var renderer, camera, scene, model;
+
+        // configuration of the custom layer for a 3D model per the CustomLayerInterface
+        var customLayer = {
+            id: '3d-model',
+            type: 'custom',
+            renderingMode: '3d',
+            onAdd: function (map, gl) {
+                camera = new THREE.Camera();
+                scene = new THREE.Scene();
+
+                // create two three.js lights to illuminate the model
+                var directionalLight = new THREE.DirectionalLight(0xffffff);
+                directionalLight.position.set(0, -70, 100).normalize();
+                scene.add(directionalLight);
+
+                var directionalLight2 = new THREE.DirectionalLight(0xffffff);
+                directionalLight2.position.set(0, 70, 100).normalize();
+                scene.add(directionalLight2);
+
+                // use the three.js GLTF loader to add the 3D model to the three.js scene
+                // var loader = new THREE.GLTFLoader();
+                // loader.load(
+                //     'https://docs.mapbox.com/mapbox-gl-js/assets/34M_17/34M_17.gltf',
+                //     function (gltf) {
+                //         model = gltf.scene;
+                //         scene.add(model);
+                //     }.bind(this)
+                // );
+                let texturepath = '/model/MuradabadZ_SGRLABS_simplified_3d_mesh.mtl';
+                let objpath = '/model/MuradabadZ_SGRLABS_simplified_3d_mesh.obj';
+                var mtlLoader = new THREE.MTLLoader()
+                mtlLoader.setCrossOrigin(true)
+                mtlLoader.load(texturepath, (materials) => {
+                    let key = '';
+                    Object.keys(materials.materialsInfo).forEach(texture => {
+                        key = texture;
+                    })
+                    // materials.setCrossOrigin(true)
+                    // materials.baseUrl = "https://s3-us-west-2.amazonaws.com/heliwarestorage/phpserver/files/";
+                    // materials.baseUrl = "https://s3-us-west-2.amazonaws.com/heliwarestorage/phpserver/files/";
+                    materials.side = THREE.DoubleSide
+                    materials.preload()
+
+                    // OBJ LOADER
+                    var objLoader = new THREE.OBJLoader()
+                    objLoader.setMaterials(materials)
+                    objLoader.load(objpath, (object) => {
+                        model = object;
+                        model.receiveShadow = true;
+                        model.castShadow = true;
+                        model.children.forEach((mesh) => {
+                            mesh.receiveShadow = true;
+                            mesh.castShadow = true;
+                            mesh.material.roughness = 1;
+                            mesh.material.flatShading = true;
+                            // (mesh.material as THREE.MeshStandardMaterial).side = THREE.FrontSide;
+                        })
+                        model.position.z = 80;
+                        model.name = 'DSM';
+                        scene.add(model);
+
+                    }, (event) => {
+                        // Model Download Progress
+                        if (event.lengthComputable) {
+                            let loaded = (event.loaded / event.total) * 100;
+                            if (loaded == 100) {
+                                isLoaded = true;
+                            }
+                        }
+                    }, err => {
+                        // Incase of Model Error
+                    })
+                }, (event) => {
+                    // Material Download Progress
+                }, err => {
+                    // Incase of Material Error
+                })
+                // this.map = map;
+
+                // use the Mapbox GL JS map canvas for three.js
+                renderer = new THREE.WebGLRenderer({
+                    canvas: map.getCanvas(),
+                    context: gl,
+                    antialias: true
+                });
+
+                renderer.autoClear = false;
+            },
+            render: function (gl, matrix) {
+                var rotationX = new THREE.Matrix4().makeRotationAxis(
+                    new THREE.Vector3(1, 0, 0),
+                    modelTransform.rotateX
+                );
+                var rotationY = new THREE.Matrix4().makeRotationAxis(
+                    new THREE.Vector3(0, 1, 0),
+                    modelTransform.rotateY
+                );
+                var rotationZ = new THREE.Matrix4().makeRotationAxis(
+                    new THREE.Vector3(0, 0, 1),
+                    modelTransform.rotateZ
+                );
+
+                var m = new THREE.Matrix4().fromArray(matrix);
+                var l = new THREE.Matrix4()
+                    .makeTranslation(
+                        modelTransform.translateX,
+                        modelTransform.translateY,
+                        modelTransform.translateZ
+                    )
+                    .scale(
+                        new THREE.Vector3(
+                            modelTransform.scale,
+                            -modelTransform.scale,
+                            modelTransform.scale
+                        )
+                    )
+                    .multiply(rotationX)
+                    .multiply(rotationY)
+                    .multiply(rotationZ);
+
+                camera.projectionMatrix = m.multiply(l);
+                renderer.state.reset();
+                renderer.render(scene, camera);
+                map.triggerRepaint();
+            },
+            visibility: ()=>{
+                console.log('visibility')
+            }
+        };
+
+        map.on('style.load', function () {
+            map.addLayer(customLayer, 'country-label');
+        });
+    </script>
+
+</body>
+
+</html>
